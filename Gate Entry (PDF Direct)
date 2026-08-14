@@ -1,0 +1,162 @@
+*&---------------------------------------------------------------------*
+*& Report ZGATE_ENTRY_REPORT
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zgate_entry_report.
+
+TYPES : BEGIN OF ts_zmm_dock,
+        zgate_entno TYPE zmm_dock-zgate_entno,
+        zdock_no    TYPE zmm_dock-zdock_no,
+        END OF ts_zmm_dock.
+
+TYPES :  BEGIN OF ts_t001w,
+         werks TYPE t001w-werks,
+         name1 TYPE t001w-name1,
+         name2 TYPE t001w-name2,
+         END OF ts_t001w.
+
+DATA : lv_fname TYPE rs38l_fnam.
+DATA : it_zdock TYPE TABLE OF ts_zmm_dock,
+       wa_zdock TYPE ts_zmm_dock,
+       lv_plant TYPE t001w.
+
+DATA : i_otfdata    TYPE tsfotf,
+       i_otfdata1 TYPE tsfotf,
+       wa_ssfcompop TYPE ssfcompop,
+       wa_control   TYPE ssfctrlop,
+       wa_outPUT    TYPE ssfcompop,
+       gv_devtype   TYPE rspoptype,
+       ls_output  TYPE ssfcrescl,
+       lv_bin_filesize  TYPE i,
+       l_xstring TYPE xstring,
+       i_lines TYPE TABLE OF tline.
+
+DATA : it_zmm_gate TYPE TABLE OF zmm_gate,
+       wa_zmm_gate TYPE zmm_gate,
+       it_zmm_dock TYPE TABLE OF zmm_dock,
+       wa_zmm_dock TYPE zmm_dock,
+       it_t001w    TYPE TABLE OF ts_t001w,
+       wa_t001w    TYPE ts_t001w,
+       lv_name(60) TYPE c.
+
+SELECTION-SCREEN : BEGIN OF BLOCK a WITH FRAME TITLE TEXT-000.
+  PARAMETERS : p_entno TYPE zmm_gate-zgate_entno.
+SELECTION-SCREEN:END OF BLOCK a.
+
+AT SELECTION-SCREEN ON p_entno.
+  IF P_ENTNO IS INITIAL.
+    MESSAGE 'Please Enter The Entry Number' TYPE 'E'.
+    ENDIF.
+
+START-OF-SELECTION.
+
+  SELECT * FROM zmm_gate
+    INTO  TABLE it_zmm_gate
+    WHERE zgate_entno = p_ENTno.
+
+
+  SELECT zgate_entno
+         zdock_no FROM zmm_dock
+    INTO TABLE it_zdock FOR ALL ENTRIES IN it_zmm_gate
+     WHERE zgate_entno = it_zmm_GATE-zgate_entno.
+
+
+  SELECT werks name1 name2  FROM t001w INTO TABLE
+  it_t001w FOR ALL ENTRIES IN it_zmm_gate
+   WHERE werks = it_zmm_gate-werks.
+
+  CLEAR :wa_zmm_gate,wa_zdock,wa_t001w,lv_name.
+  READ TABLE it_zmm_gate INTO wa_zmm_gate INDEX 1.
+  READ TABLE it_zdock INTO wa_zdock INDEX 1.
+  READ TABLE it_t001w INTO wa_t001w INDEX 1.
+
+  CONCATENATE wa_t001w-name1 wa_t001w-name2 INTO lv_name SEPARATED BY ' '.
+
+
+  CALL FUNCTION 'SSF_FUNCTION_MODULE_NAME'
+    EXPORTING
+      formname           = 'ZGATE_ENTRY_INVOICE'
+*     VARIANT            = ' '
+*     DIRECT_CALL        = ' '
+    IMPORTING
+      fm_name            = lv_fName
+    EXCEPTIONS
+      no_form            = 1
+      no_function_module = 2
+      OTHERS             = 3.
+  IF sy-subrc <> 0.
+* Implement suitable error handling here
+  ENDIF.
+
+  CALL FUNCTION 'SSF_GET_DEVICE_TYPE'
+    EXPORTING
+      i_language                   = sy-langu
+     IMPORTING
+     E_DEVTYPE                     = gv_devtype
+   EXCEPTIONS
+     NO_LANGUAGE                  = 1
+     LANGUAGE_NOT_INSTALLED       = 2
+     NO_DEVTYPE_FOUND             = 3
+     SYSTEM_ERROR                 = 4
+     OTHERS                       = 5
+  .
+  IF sy-subrc <> 0.
+* Implement suitable error handling here
+  ENDIF.
+
+wa_ssfcompop-tdprinter = gv_devtype.
+wa_control-getotf = 'X'.
+
+  wa_control-preview  = 'X'.
+  wa_control-no_dialog = 'X'.
+
+
+CALL FUNCTION '/1BCDWB/SF00000152'
+  EXPORTING
+   CONTROL_PARAMETERS         = wa_control
+    wa_zmm_gate                = wa_zmm_gate
+    wa_zdock                   = wa_zdock
+    lv_name                    = lv_name
+ IMPORTING
+   JOB_OUTPUT_INFO            = ls_output
+ EXCEPTIONS
+   FORMATTING_ERROR           = 1
+   INTERNAL_ERROR             = 2
+   SEND_ERROR                 = 3
+   USER_CANCELED              = 4
+   OTHERS                     = 5
+          .
+IF sy-subrc <> 0.
+* Implement suitable error handling here
+ENDIF.
+
+
+   i_otfdata[] = ls_output-otfdata[].
+  APPEND LINES OF i_otfdata[] TO i_otfdata1[].
+  REFRESH : i_otfdata[] .
+
+CALL FUNCTION 'CONVERT_OTF'
+    EXPORTING
+      format                = 'PDF'
+      max_linewidth         =  1024                                             "1024
+    IMPORTING
+      bin_filesize          = lv_bin_filesize
+      bin_file              = l_xstring
+    TABLES
+      otf                   = i_otfdata1
+      lines                 = i_lines
+    EXCEPTIONS
+      err_max_linewidth     = 1
+      err_format            = 2
+      err_conv_not_possible = 3
+      err_bad_otf           = 4
+      OTHERS                = 5 ##FM_SUBRC_OK.
+
+CALL FUNCTION 'SSFCOMP_PDF_PREVIEW'
+      EXPORTING
+        i_otf                    = i_otfdata1
+      EXCEPTIONS
+        convert_otf_to_pdf_error = 1
+        cntl_error               = 2
+        OTHERS                   = 3.
