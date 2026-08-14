@@ -1,0 +1,323 @@
+"********when ever custom page size consider window as reference*******
+" spad "
+"1.page formates
+"2.formate types
+"3.DEVICE OR SERVERS->OUTPUT Devices -> display ->lp01-> Formates ->click swin  then add . 
+"will ask new sub tr 
+"if barcode is there please move TR manually
+
+
+REPORT yr_ae_pp_kanban_card_print.
+
+
+TABLES : pkhd,pkps,pvbe.
+
+TYPES : BEGIN OF ty_pkhd,
+          werks TYPE pvbe-werks,
+          prvbe TYPE pvbe-prvbe,
+          lgort TYPE pvbe-lgort,
+          pknum TYPE pkhd-pknum,
+          matnr TYPE pkhd-matnr,
+          meins TYPE pkhd-meins,
+          behaz TYPE pkhd-behaz,
+          behmg TYPE pkhd-behmg,
+          pkkey TYPE pkps-pkkey,
+          pkpos TYPE pkps-pkpos,
+        END OF  ty_pkhd.
+
+
+
+DATA : it_table TYPE TABLE OF ty_pkhd.
+DATA : lv_barcode TYPE char11,
+       lv_num     TYPE c,
+       no_copy    TYPE i,
+       tot_copy   TYPE i,
+       w_cnt2     TYPE i,
+       w_cnt      TYPE i.
+
+DATA : lv_fname        TYPE rs38l_fnam,
+       i_otfdata       TYPE tsfotf,
+       i_otfdata1      TYPE tsfotf,
+       wa_ssfcompop    TYPE ssfcompop,
+       wa_control      TYPE ssfctrlop,
+       wa_output       TYPE ssfcompop,
+       gv_devtype      TYPE rspoptype,
+       ls_output       TYPE ssfcrescl,
+       lv_bin_filesize TYPE i,
+       l_xstring       TYPE xstring,
+       i_lines         TYPE TABLE OF tline.
+
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-001.
+  PARAMETERS: p_werks TYPE pvbe-werks OBLIGATORY,
+              p_lgort TYPE pvbe-lgort OBLIGATORY DEFAULT 'PV01',
+              p_psa   TYPE pvbe-prvbe OBLIGATORY.
+
+  SELECT-OPTIONS : s_mat FOR pkhd-matnr,
+                   s_kanban FOR pkps-pkkey.
+SELECTION-SCREEN END OF BLOCK b1.
+
+INITIALIZATION.
+
+
+START-OF-SELECTION.
+  PERFORM get_process_data .
+
+*&---------------------------------------------------------------------*
+*& form get_process_data
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*& -->  p1        text
+*& <--  p2        text
+*&---------------------------------------------------------------------*
+FORM get_process_data.
+
+  SELECT a~werks,
+         a~prvbe,
+         a~lgort,  " storage location
+         b~pknum,  "
+         b~matnr,  " material
+         b~meins,  " uom
+         b~behaz,  "
+         b~behmg,  " qty
+         c~pkkey,   " kanban id
+         c~pkpos   " container
+  FROM pvbe AS a
+  INNER JOIN pkhd AS b
+  ON a~werks = b~werks
+  AND a~prvbe = b~prvbe
+  INNER JOIN pkps AS c
+  ON b~pknum = c~pknum
+  INTO CORRESPONDING FIELDS OF TABLE @it_table
+  WHERE a~werks = @p_werks
+  AND   a~lgort = @p_lgort
+  AND   a~prvbe = @p_psa
+  AND   b~matnr IN @s_mat
+  AND   c~pkkey IN @s_kanban.
+
+
+  IF it_table IS NOT INITIAL.
+    SELECT matnr,
+           maktx  " material decription
+      FROM makt INTO TABLE @DATA(it_makt)
+      FOR ALL ENTRIES IN @it_table
+      WHERE matnr = @it_table-matnr.
+
+    SELECT pvbtx,  " psa_decription
+           prvbe   " psa
+      FROM pvkt INTO TABLE @DATA(it_pvkt)
+      FOR ALL ENTRIES IN @it_table
+      WHERE prvbe = @it_table-prvbe.
+
+  ENDIF.
+
+
+*  if it_table is  not initial.
+*    sort it_table by pkkey.
+*    loop at it_table into data(wa_table).
+*
+*      read table it_makt into data(wa_makt) with key matnr = wa_table-matnr.
+*      read table it_pvkt into data(wa_pvkt) with key prvbe = wa_table-prvbe.
+*
+*     lv_num = 2.
+*     concatenate wa_table-pkkey lv_num into lv_barcode .
+*
+*      call function 'ssf_function_module_name'
+*        exporting
+*          formname           = 'yr_ae_pp_kanban_card'
+**         variant            = ' '
+**         direct_call        = ' '
+*        importing
+*          fm_name            = lv_fname
+*        exceptions
+*          no_form            = 1
+*          no_function_module = 2
+*          others             = 3.
+*      if sy-subrc <> 0.
+** implement suitable error handling here
+*      endif.
+*
+*      call function 'ssf_get_device_type'
+*        exporting
+*          i_language             = sy-langu
+*        importing
+*          e_devtype              = gv_devtype
+*        exceptions
+*          no_language            = 1
+*          language_not_installed = 2
+*          no_devtype_found       = 3
+*          system_error           = 4
+*          others                 = 5.
+*      if sy-subrc <> 0.
+** implement suitable error handling here
+*      endif.
+*
+**      wa_ssfcompop-tdprinter = gv_devtype.
+*      wa_control-getotf = 'x'.
+*      wa_control-preview  = 'x'.
+*      wa_control-no_dialog = 'x'.
+*      wa_output-tddest = 'lp01'.
+*      wa_output-tdimmed = 'x'.
+*
+**
+*call function lv_fname"'/1bcdwb/sf00000157'
+*  exporting
+*   control_parameters          = wa_control
+*    output_options             = wa_output
+*    lv_material                = wa_table-matnr
+*    lv_qty                     = wa_table-behmg
+*    lv_storage                 = wa_table-lgort
+*    lv_psa_des                 = wa_pvkt-pvbtx
+*    lv_description             = wa_makt-maktx
+*    lv_psa                     = wa_pvkt-prvbe
+*    lv_container               = wa_table-pkpos
+*    lv_kanban                  = wa_table-pkkey
+*    lv_uom                     = wa_table-meins
+*    lv_barcode                 = lv_barcode
+* importing
+*   job_output_info            = ls_output
+* exceptions
+*   formatting_error           = 1
+*   internal_error             = 2
+*   send_error                 = 3
+*   user_canceled              = 4
+*   others                     = 5
+*          .
+*if sy-subrc <> 0.
+** implement suitable error handling here
+*endif.
+*
+*
+*
+*      i_otfdata[] = ls_output-otfdata[].
+*      append lines of i_otfdata[] to i_otfdata1[].
+*      refresh : i_otfdata[] .
+*
+*      clear :wa_table,wa_makt,wa_pvkt,pkps,lv_barcode.
+*
+*    endloop.
+*
+*
+*    call function 'convert_otf'
+*      exporting
+*        format                = 'pdf'
+*        max_linewidth         = 1024                                             "1024
+*      importing
+*        bin_filesize          = lv_bin_filesize
+*        bin_file              = l_xstring
+*      tables
+*        otf                   = i_otfdata1
+*        lines                 = i_lines
+*      exceptions
+*        err_max_linewidth     = 1
+*        err_format            = 2
+*        err_conv_not_possible = 3
+*        err_bad_otf           = 4
+*        others                = 5 ##fm_subrc_ok.
+*
+*    call function 'ssfcomp_pdf_preview'
+*      exporting
+*        i_otf                    = i_otfdata1
+*      exceptions
+*        convert_otf_to_pdf_error = 1
+*        cntl_error               = 2
+*        others                   = 3.
+*
+* else.
+*   message 'no data found' type 'i' .
+*   leave to list-processing.
+*  endif.
+*
+
+
+  IF it_table IS NOT INITIAL.
+    CLEAR : tot_copy,no_copy.
+    no_copy = 1.
+    DESCRIBE TABLE it_table LINES tot_copy.
+
+    SORT it_table BY pkkey.
+    LOOP AT it_table INTO DATA(wa_table).
+
+      DATA(lv_tabix) = sy-tabix.
+
+      lv_num = 2.
+      CONCATENATE wa_table-pkkey lv_num INTO lv_barcode .
+      READ TABLE it_makt INTO DATA(wa_makt) WITH KEY matnr = wa_table-matnr.
+      READ TABLE it_pvkt INTO DATA(wa_pvkt) WITH KEY prvbe = wa_table-prvbe.
+
+      no_copy = no_copy.
+      w_cnt = tot_copy.
+      w_cnt2 = lv_tabix.
+      CASE w_cnt2.
+        WHEN 1.
+          wa_control-no_open   = space .
+          wa_control-no_close  = 'X' .
+        WHEN w_cnt.
+          wa_control-no_open   = 'X' .
+          wa_control-no_close  = space .
+        WHEN OTHERS.
+          wa_control-no_open   = 'X' .
+          wa_control-no_close  = 'X' .
+      ENDCASE.
+
+
+      wa_output-tddest = 'LP01'.
+      wa_output-tdimmed = 'X'.
+      wa_output-tdnewid = 'X'.
+      wa_control-preview = 'X'.
+
+
+      CALL FUNCTION 'SSF_FUNCTION_MODULE_NAME'
+        EXPORTING
+          formname           = 'YR_AE_PP_KANBAN_CARD'
+        IMPORTING
+          fm_name            = lv_fname
+        EXCEPTIONS
+          no_form            = 1
+          no_function_module = 2
+          OTHERS             = 3.
+      IF sy-subrc <> 0.
+* implement suitable error handling here
+      ENDIF.
+
+      IF tot_copy EQ 1.
+        wa_control-no_close = ' '.
+      ENDIF.
+
+      CALL FUNCTION lv_fname      "'/1bcdwb/sf00000157'
+        EXPORTING
+          control_parameters = wa_control
+          output_options     = wa_output
+          lv_material        = wa_table-matnr
+          lv_qty             = wa_table-behmg
+          lv_storage         = wa_table-lgort
+          lv_psa_des         = wa_pvkt-pvbtx
+          lv_description     = wa_makt-maktx
+          lv_psa             = wa_pvkt-prvbe
+          lv_container       = wa_table-pkpos
+          lv_kanban          = wa_table-pkkey
+          lv_uom             = wa_table-meins
+          lv_barcode         = lv_barcode
+        IMPORTING
+          job_output_info    = ls_output
+        EXCEPTIONS
+          formatting_error   = 1
+          internal_error     = 2
+          send_error         = 3
+          user_canceled      = 4
+          OTHERS             = 5.
+      IF sy-subrc <> 0.
+* implement suitable error handling here
+      ENDIF.
+
+
+*      perform call_form.
+      no_copy = no_copy + 1.
+    ENDLOOP.
+  ENDIF.
+
+
+ENDFORM.
+
+
